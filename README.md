@@ -9,9 +9,10 @@ Drivers, Overlays, and IQ Tuning files for the Rockchip platform.
 ## Roadmap
 
 | Camera Sensor | Driver   | Overlay         | IQ Tuning |
-| ---           | ---      | ---             | --- |
+|---------------| ---      | ---             | --- |
 | IMX290        | &#x2714; | &#x2714;RK3576  |     |
 | OV9281        | &#x2714; | &#x2714;RK3576  |     |
+| OV9282        | &#x2714; | &#x2714;RK3576  |     |
 | IMX462        |          |                 |     |
 | IMX415        |          |                 |     |
 | IMX378        |          |                 |     |
