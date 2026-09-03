@@ -16,6 +16,18 @@
 };
 
 &{/} {
+	/*
+	 * The OV9282 XVCLK is supplied externally by the carrier board
+	 * (24 MHz, 1.8 V).  This fixed-clock node is only a software
+	 * representation so the sensor driver has a valid xvclk clock
+	 * provider to acquire/enable; it does not drive a SoC clock pin.
+	 */
+	ov9282_xvclk: ov9282-xvclk {
+		compatible = "fixed-clock";
+		#clock-cells = <0>;
+		clock-frequency = <24000000>;
+	};
+
 	camera_avdd_2v8: camera-avdd-2v8 {
 		compatible = "regulator-fixed";
 		regulator-name = "camera_avdd_2v8";
@@ -56,13 +68,15 @@
 		compatible = "ovti,ov9282";
 		reg = <0x10>;
 
-		clocks = <&cru CLK_MIPI_CAMERAOUT_M0>;
+		/*
+		 * XVCLK is physically generated off-SoC on the carrier.
+		 * Use the fixed software clock above; do not mux/drive CAM_CLK0.
+		 */
+		clocks = <&ov9282_xvclk>;
 		clock-names = "xvclk";
-		assigned-clocks = <&cru CLK_MIPI_CAMERAOUT_M0>;
-		assigned-clock-rates = <24000000>;
 
 		pinctrl-names = "default";
-		pinctrl-0 = <&cam_clk0m0_clk0 &cam_pwdn_gpio_1>;
+		pinctrl-0 = <&cam_pwdn_gpio_1>;
 
 		/* CAM_RST_3V3 drives an inverting NMOS on the carrier.
 		 * Logical reset asserted => SoC pin HIGH => sensor XSHUTDOWN LOW.
