@@ -79,6 +79,7 @@ struct ov9282_reg_list {
  * struct ov9282_mode - ov9282 sensor mode structure
  * @width: Frame width
  * @height: Frame height
+ * @max_fps: Nominal frame interval for this mode
  * @code: Format code
  * @hblank: Horizontal blanking in lines
  * @vblank: Vertical blanking in lines
@@ -91,6 +92,7 @@ struct ov9282_reg_list {
 struct ov9282_mode {
 	u32 width;
 	u32 height;
+	struct v4l2_fract max_fps;
 	u32 code;
 	u32 hblank;
 	u32 vblank;
@@ -147,8 +149,15 @@ static const s64 link_freq[] = {
 	OV9282_LINK_FREQ,
 };
 
-/* Sensor mode registers */
-static const struct ov9282_reg mode_1280x720_regs[] = {
+/* Sensor mode registers
+ *
+ * 1280x800 @ 120 fps, 24 MHz XVCLK, 2-lane MIPI CSI-2 at 800 Mbps/lane.
+ * Register sequence ported from the known-working Rockchip OV9281 driver;
+ * OV9281/OV9282 share the 0x9281 sensor ID and this mode programming.
+ */
+static const struct ov9282_reg mode_1280x800_120fps_regs[] = {
+
+	{0x0103, 0x01},
 	{0x0302, 0x32},
 	{0x030d, 0x50},
 	{0x030e, 0x02},
@@ -158,14 +167,17 @@ static const struct ov9282_reg mode_1280x720_regs[] = {
 	{0x3006, 0x04},
 	{0x3011, 0x0a},
 	{0x3013, 0x18},
-	{0x301c, 0xf0},
 	{0x3022, 0x01},
-	{0x3030, 0x10},
+	{0x3023, 0x00},
+	{0x302c, 0x00},
+	{0x302f, 0x00},
+	{0x3030, 0x04},
 	{0x3039, 0x32},
 	{0x303a, 0x00},
+	{0x303f, 0x01},
 	{0x3500, 0x00},
-	{0x3501, 0x5f},
-	{0x3502, 0x1e},
+	{0x3501, 0x2a},
+	{0x3502, 0x90},
 	{0x3503, 0x08},
 	{0x3505, 0x8c},
 	{0x3507, 0x03},
@@ -173,9 +185,10 @@ static const struct ov9282_reg mode_1280x720_regs[] = {
 	{0x3509, 0x10},
 	{0x3610, 0x80},
 	{0x3611, 0xa0},
-	{0x3620, 0x6e},
+	{0x3620, 0x6f},
 	{0x3632, 0x56},
 	{0x3633, 0x78},
+	{0x3662, 0x05},
 	{0x3666, 0x00},
 	{0x366f, 0x5a},
 	{0x3680, 0x84},
@@ -196,74 +209,93 @@ static const struct ov9282_reg mode_1280x720_regs[] = {
 	{0x3803, 0x00},
 	{0x3804, 0x05},
 	{0x3805, 0x0f},
-	{0x3806, 0x02},
-	{0x3807, 0xdf},
+	{0x3806, 0x03},
+	{0x3807, 0x2f},
 	{0x3808, 0x05},
 	{0x3809, 0x00},
-	{0x380a, 0x02},
-	{0x380b, 0xd0},
-	{0x380c, 0x05},
-	{0x380d, 0xfa},
-	{0x380e, 0x06},
-	{0x380f, 0xce},
+	{0x380a, 0x03},
+	{0x380b, 0x20},
+	{0x380c, 0x02},
+	{0x380d, 0xd8},
+	{0x380e, 0x03},
+	{0x380f, 0x8e},
 	{0x3810, 0x00},
 	{0x3811, 0x08},
 	{0x3812, 0x00},
 	{0x3813, 0x08},
 	{0x3814, 0x11},
 	{0x3815, 0x11},
-	{0x3820, 0x3c},
-	{0x3821, 0x84},
+	{0x3820, 0x40},
+	{0x3821, 0x00},
 	{0x3881, 0x42},
-	{0x38a8, 0x02},
-	{0x38a9, 0x80},
 	{0x38b1, 0x00},
-	{0x38c4, 0x00},
-	{0x38c5, 0xc0},
-	{0x38c6, 0x04},
-	{0x38c7, 0x80},
 	{0x3920, 0xff},
 	{0x4003, 0x40},
-	{0x4008, 0x02},
-	{0x4009, 0x05},
+	{0x4008, 0x04},
+	{0x4009, 0x0b},
 	{0x400c, 0x00},
-	{0x400d, 0x03},
+	{0x400d, 0x07},
 	{0x4010, 0x40},
 	{0x4043, 0x40},
 	{0x4307, 0x30},
 	{0x4317, 0x00},
 	{0x4501, 0x00},
 	{0x4507, 0x00},
-	{0x4509, 0x80},
+	{0x4509, 0x00},
 	{0x450a, 0x08},
 	{0x4601, 0x04},
 	{0x470f, 0x00},
 	{0x4f07, 0x00},
-	{0x4800, 0x20},
+	{0x4800, 0x00},
 	{0x5000, 0x9f},
 	{0x5001, 0x00},
 	{0x5e00, 0x00},
 	{0x5d00, 0x07},
 	{0x5d01, 0x00},
-	{0x0101, 0x01},
-	{0x1000, 0x03},
-	{0x5a08, 0x84},
 };
 
-/* Supported sensor mode configurations */
-static const struct ov9282_mode supported_mode = {
-	.width = 1280,
-	.height = 720,
-	.hblank = 250,
-	.vblank = 1022,
-	.vblank_min = 151,
-	.vblank_max = 51540,
-	.pclk = 160000000,
-	.link_freq_idx = 0,
-	.code = MEDIA_BUS_FMT_Y10_1X10,
-	.reg_list = {
-		.num_of_regs = ARRAY_SIZE(mode_1280x720_regs),
-		.regs = mode_1280x720_regs,
+/* Supported sensor modes.
+ *
+ * All three modes use the same proven 1280x800 / RAW10 / 800-Mbps-per-lane
+ * register sequence.  Frame rate is selected by VTS (0x380e/0x380f), which
+ * the VBLANK control programs when the mode is selected/streaming starts.
+ *
+ * 30 fps VTS  = 0x0e48 (3656), matching the working Rockchip OV9281 driver.
+ * 60 fps VTS  = 0x0724 (1828), exactly half of the 30-fps VTS.
+ * 120 fps VTS = 0x038e (910), matching the working Rockchip OV9281 driver.
+ *
+ * Keep the same V4L2 horizontal-blanking metadata used by the proven
+ * 120-fps mode.  The OV9281 Rockchip driver uses sensor-specific HTS
+ * conventions which are not a direct pixels-per-line value.
+ */
+static const struct ov9282_mode supported_modes[] = {
+	{
+		.width = 1280,
+		.height = 800,
+		.max_fps = {
+			.numerator = 1,
+			.denominator = 120,
+		},
+		/*
+		 * OV9282 register HTS is 0x02d8 (728). For this mode the
+		 * effective pixel timing is two pixel clocks per HTS unit,
+		 * giving an effective HTS of 1456 pixels.
+		 */
+		.hblank = (0x02d8 * 2) - 1280,
+		/*
+		 * 120-fps base timing: VTS = 0x038e = 910 lines.
+		 * Increasing VBLANK/VTS lowers the frame rate continuously.
+		 */
+		.vblank = 0x038e - 800,
+		.vblank_min = 0x038e - 800,
+		.vblank_max = 0x7fff - 800,
+		.pclk = 160000000,
+		.link_freq_idx = 0,
+		.code = MEDIA_BUS_FMT_Y10_1X10,
+		.reg_list = {
+			.num_of_regs = ARRAY_SIZE(mode_1280x800_120fps_regs),
+			.regs = mode_1280x800_120fps_regs,
+		},
 	},
 };
 
@@ -510,7 +542,7 @@ static int ov9282_enum_mbus_code(struct v4l2_subdev *sd,
 	if (code->index > 0)
 		return -EINVAL;
 
-	code->code = supported_mode.code;
+	code->code = supported_modes[0].code;
 
 	return 0;
 }
@@ -530,12 +562,12 @@ static int ov9282_enum_frame_size(struct v4l2_subdev *sd,
 	if (fsize->index > 0)
 		return -EINVAL;
 
-	if (fsize->code != supported_mode.code)
+	if (fsize->code != supported_modes[0].code)
 		return -EINVAL;
 
-	fsize->min_width = supported_mode.width;
+	fsize->min_width = supported_modes[0].width;
 	fsize->max_width = fsize->min_width;
-	fsize->min_height = supported_mode.height;
+	fsize->min_height = supported_modes[0].height;
 	fsize->max_height = fsize->min_height;
 
 	return 0;
@@ -610,7 +642,7 @@ static int ov9282_set_pad_format(struct v4l2_subdev *sd,
 
 	mutex_lock(&ov9282->mutex);
 
-	mode = &supported_mode;
+	mode = ov9282->cur_mode;
 	ov9282_fill_pad_format(ov9282, mode, fmt);
 
 	if (fmt->which == V4L2_SUBDEV_FORMAT_TRY) {
@@ -643,7 +675,7 @@ static int ov9282_init_pad_cfg(struct v4l2_subdev *sd,
 	struct v4l2_subdev_format fmt = { 0 };
 
 	fmt.which = sd_state ? V4L2_SUBDEV_FORMAT_TRY : V4L2_SUBDEV_FORMAT_ACTIVE;
-	ov9282_fill_pad_format(ov9282, &supported_mode, &fmt);
+	ov9282_fill_pad_format(ov9282, &supported_modes[0], &fmt);
 
 	return ov9282_set_pad_format(sd, sd_state, &fmt);
 }
@@ -849,24 +881,90 @@ done_endpoint_free:
  * @sd: pointer to ov9282 V4L2 sub-device structure
  * @fi: frame interval to be filled
  *
+ * The 1280x800 timing table is a 120-fps base mode with VTS=910.
+ * Frame rate is varied by increasing VTS through VBLANK.
+ *
  * Return: 0 if successful
  */
 static int ov9282_g_frame_interval(struct v4l2_subdev *sd,
 				   struct v4l2_subdev_frame_interval *fi)
 {
 	struct ov9282 *ov9282 = to_ov9282(sd);
-	const struct ov9282_mode *mode = ov9282->cur_mode;
 	u32 vts;
 
 	mutex_lock(&ov9282->mutex);
 
-	vts = mode->height + ov9282->vblank;
-	fi->interval.numerator = (mode->width + mode->hblank) * vts;
-	fi->interval.denominator = mode->pclk;
+	vts = ov9282->cur_mode->height + ov9282->vblank;
+
+	/*
+	 * Base timing is 120 fps at VTS=0x038e (910):
+	 *
+	 *   interval = VTS / (910 * 120) seconds
+	 *
+	 * This keeps the reported interval consistent with the sensor's
+	 * frame-length control rather than treating 30/60/120 as separate
+	 * same-resolution modes.
+	 */
+	fi->interval.numerator = vts;
+	fi->interval.denominator = 0x038e * 120;
 
 	mutex_unlock(&ov9282->mutex);
 
 	return 0;
+}
+
+/**
+ * ov9282_s_frame_interval() - Set frame rate by changing VBLANK/VTS
+ * @sd: pointer to ov9282 V4L2 sub-device structure
+ * @fi: requested frame interval; updated with the actual interval
+ *
+ * Supports any requested rate up to 120 fps by changing frame length.
+ * 120/60/30 fps correspond nominally to VTS 910/1820/3640.
+ */
+static int ov9282_s_frame_interval(struct v4l2_subdev *sd,
+				   struct v4l2_subdev_frame_interval *fi)
+{
+	struct ov9282 *ov9282 = to_ov9282(sd);
+	u64 vts;
+	u32 vblank;
+	int ret;
+
+	if (!fi->interval.numerator || !fi->interval.denominator)
+		return -EINVAL;
+
+	/*
+	 * From the 120-fps base mode:
+	 *     interval = VTS / (910 * 120)
+	 * therefore:
+	 *     VTS = interval * 910 * 120
+	 */
+	vts = DIV_ROUND_CLOSEST_ULL((u64)fi->interval.numerator *
+				    0x038e * 120,
+				    fi->interval.denominator);
+
+	vts = clamp_t(u64, vts,
+		      supported_modes[0].height + supported_modes[0].vblank_min,
+		      supported_modes[0].height + supported_modes[0].vblank_max);
+
+	vblank = (u32)vts - supported_modes[0].height;
+
+	mutex_lock(&ov9282->mutex);
+
+	if (ov9282->streaming) {
+		ret = -EBUSY;
+		goto out;
+	}
+
+	ret = __v4l2_ctrl_s_ctrl(ov9282->vblank_ctrl, vblank);
+	if (!ret) {
+		ov9282->vblank = vblank;
+		fi->interval.numerator = (u32)vts;
+		fi->interval.denominator = 0x038e * 120;
+	}
+
+out:
+	mutex_unlock(&ov9282->mutex);
+	return ret;
 }
 
 /**
@@ -882,7 +980,7 @@ static int ov9282_enum_frame_interval(
 	struct v4l2_subdev_state *sd_state,
 	struct v4l2_subdev_frame_interval_enum *fie)
 {
-	const struct ov9282_mode *mode = &supported_mode;
+	const struct ov9282_mode *mode = &supported_modes[0];
 
 	if (fie->index != 0)
 		return -EINVAL;
@@ -890,11 +988,10 @@ static int ov9282_enum_frame_interval(
 	if (fie->code != mode->code)
 		return -EINVAL;
 
-	fie->width = mode->width;
-	fie->height = mode->height;
-	fie->interval.numerator =
-		(mode->width + mode->hblank) * (mode->height + mode->vblank);
-	fie->interval.denominator = mode->pclk;
+	if (fie->width != mode->width || fie->height != mode->height)
+		return -EINVAL;
+
+	fie->interval = mode->max_fps;
 
 	return 0;
 }
@@ -920,6 +1017,7 @@ static int ov9282_get_mbus_config(struct v4l2_subdev *sd, unsigned int pad,
 static const struct v4l2_subdev_video_ops ov9282_video_ops = {
 	.s_stream = ov9282_set_stream,
 	.g_frame_interval = ov9282_g_frame_interval,
+	.s_frame_interval = ov9282_s_frame_interval,
 };
 
 static const struct v4l2_subdev_pad_ops ov9282_pad_ops = {
@@ -1113,8 +1211,8 @@ static int ov9282_probe(struct i2c_client *client)
 		goto error_power_off;
 	}
 
-	/* Set default mode to max resolution */
-	ov9282->cur_mode = &supported_mode;
+	/* Set default mode to 1280x800, maximum 120 fps */
+	ov9282->cur_mode = &supported_modes[0];
 	ov9282->vblank = ov9282->cur_mode->vblank;
 
 	ret = ov9282_init_controls(ov9282);
