@@ -1,0 +1,220 @@
+/dts-v1/;
+/plugin/;
+
+#include <dt-bindings/gpio/gpio.h>
+#include <dt-bindings/pinctrl/rockchip.h>
+#include <dt-bindings/clock/rockchip,rk3576-cru.h>
+
+/ {
+	metadata {
+		title = "Enable OV9282 Camera on CAM1";
+		compatible = "radxa,cm4-io";
+		category = "camera";
+		exclusive = "GPIO2_C5", "csi2_dphy1", "i2c6";
+		description = "Enable an OV9282 two-lane MIPI CSI-2 camera on CAM1.";
+	};
+};
+
+&{/} {
+	camera_avdd_2v8: camera-avdd-2v8 {
+		compatible = "regulator-fixed";
+		regulator-name = "camera_avdd_2v8";
+		regulator-min-microvolt = <2800000>;
+		regulator-max-microvolt = <2800000>;
+		regulator-always-on;
+		regulator-boot-on;
+	};
+
+	camera_dovdd_1v8: camera-dovdd-1v8 {
+		compatible = "regulator-fixed";
+		regulator-name = "camera_dovdd_1v8";
+		regulator-min-microvolt = <1800000>;
+		regulator-max-microvolt = <1800000>;
+		regulator-always-on;
+		regulator-boot-on;
+	};
+
+	camera_dvdd_1v2: camera-dvdd-1v2 {
+		compatible = "regulator-fixed";
+		regulator-name = "camera_dvdd_1v2";
+		regulator-min-microvolt = <1200000>;
+		regulator-max-microvolt = <1200000>;
+		regulator-always-on;
+		regulator-boot-on;
+	};
+};
+
+&i2c6 {
+	status = "okay";
+	pinctrl-names = "default";
+	pinctrl-0 = <&i2c6m3_xfer>;
+	#address-cells = <1>;
+	#size-cells = <0>;
+
+	ov9282_1: ov9282@10 {
+		status = "okay";
+		compatible = "ovti,ov9282";
+		reg = <0x10>;
+
+		clocks = <&cru CLK_MIPI_CAMERAOUT_M0>;
+		clock-names = "xvclk";
+		assigned-clocks = <&cru CLK_MIPI_CAMERAOUT_M0>;
+		assigned-clock-rates = <24000000>;
+
+		pinctrl-names = "default";
+		pinctrl-0 = <&cam_clk0m0_clk0 &cam_pwdn_gpio_1>;
+
+		/* CAM_RST_3V3 drives an inverting NMOS on the carrier.
+		 * Logical reset asserted => SoC pin HIGH => sensor XSHUTDOWN LOW.
+		 * GPIO_ACTIVE_LOW makes the OV9282 driver power-on logical 1
+		 * drive the SoC pin LOW, releasing XSHUTDOWN to 1.8 V.
+		 */
+		reset-gpios = <&gpio2 RK_PC5 GPIO_ACTIVE_LOW>;
+
+		avdd-supply = <&camera_avdd_2v8>;
+		dovdd-supply = <&camera_dovdd_1v8>;
+		dvdd-supply = <&camera_dvdd_1v2>;
+
+		rockchip,camera-module-index = <0>;
+		rockchip,camera-module-facing = "back";
+		rockchip,camera-module-name = "ov9282";
+		rockchip,camera-module-lens-name = "default";
+
+		port {
+			ov9282_out1: endpoint {
+				remote-endpoint = <&mipidphy1_in_ucam1>;
+				data-lanes = <1 2>;
+				link-frequencies = /bits/ 64 <400000000>;
+			};
+		};
+	};
+};
+
+&csi2_dphy0_hw {
+	status = "okay";
+};
+
+&csi2_dphy1_hw {
+	status = "okay";
+};
+
+&csi2_dphy1 {
+	status = "okay";
+
+	ports {
+		#address-cells = <1>;
+		#size-cells = <0>;
+
+		port@0 {
+			reg = <0>;
+			#address-cells = <1>;
+			#size-cells = <0>;
+
+			mipidphy1_in_ucam1: endpoint@2 {
+				reg = <2>;
+				remote-endpoint = <&ov9282_out1>;
+				data-lanes = <1 2>;
+			};
+		};
+
+		port@1 {
+			reg = <1>;
+			#address-cells = <1>;
+			#size-cells = <0>;
+
+			csidphy1_out: endpoint@0 {
+				reg = <0>;
+				remote-endpoint = <&mipi1_csi2_input>;
+			};
+		};
+	};
+};
+
+&mipi1_csi2 {
+	status = "okay";
+
+	ports {
+		#address-cells = <1>;
+		#size-cells = <0>;
+
+		port@0 {
+			reg = <0>;
+			#address-cells = <1>;
+			#size-cells = <0>;
+
+			mipi1_csi2_input: endpoint@1 {
+				reg = <1>;
+				remote-endpoint = <&csidphy1_out>;
+			};
+		};
+
+		port@1 {
+			reg = <1>;
+			#address-cells = <1>;
+			#size-cells = <0>;
+
+			mipi1_csi2_output: endpoint@0 {
+				reg = <0>;
+				remote-endpoint = <&cif_mipi1_in1>;
+			};
+		};
+	};
+};
+
+&rkcif {
+	status = "okay";
+};
+
+&rkcif_mmu {
+	status = "okay";
+};
+
+&rkcif_mipi_lvds1 {
+	status = "okay";
+
+	port {
+		cif_mipi1_in1: endpoint {
+			remote-endpoint = <&mipi1_csi2_output>;
+		};
+	};
+};
+
+&rkcif_mipi_lvds1_sditf {
+	status = "okay";
+
+	port {
+		mipi_lvds1_sditf: endpoint {
+			remote-endpoint = <&isp_vir1>;
+		};
+	};
+};
+
+&rkisp_mmu {
+	status = "okay";
+};
+
+&rkisp {
+	status = "okay";
+};
+
+&rkisp_vir1 {
+	status = "okay";
+
+	port {
+		#address-cells = <1>;
+		#size-cells = <0>;
+
+		isp_vir1: endpoint@0 {
+			reg = <0>;
+			remote-endpoint = <&mipi_lvds1_sditf>;
+		};
+	};
+};
+
+&pinctrl {
+	camera {
+		cam_pwdn_gpio_1: cam-pwdn-gpio-1 {
+			rockchip,pins = <2 RK_PC5 RK_FUNC_GPIO &pcfg_pull_up>;
+		};
+	};
+};
