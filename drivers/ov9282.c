@@ -844,17 +844,92 @@ done_endpoint_free:
 	return ret;
 }
 
+/**
+ * ov9282_g_frame_interval() - Get current sensor frame interval
+ * @sd: pointer to ov9282 V4L2 sub-device structure
+ * @fi: frame interval to be filled
+ *
+ * Return: 0 if successful
+ */
+static int ov9282_g_frame_interval(struct v4l2_subdev *sd,
+				   struct v4l2_subdev_frame_interval *fi)
+{
+	struct ov9282 *ov9282 = to_ov9282(sd);
+	const struct ov9282_mode *mode = ov9282->cur_mode;
+	u32 vts;
+
+	mutex_lock(&ov9282->mutex);
+
+	vts = mode->height + ov9282->vblank;
+	fi->interval.numerator = (mode->width + mode->hblank) * vts;
+	fi->interval.denominator = mode->pclk;
+
+	mutex_unlock(&ov9282->mutex);
+
+	return 0;
+}
+
+/**
+ * ov9282_enum_frame_interval() - Enumerate supported frame intervals
+ * @sd: pointer to ov9282 V4L2 sub-device structure
+ * @sd_state: V4L2 sub-device configuration
+ * @fie: frame interval enumeration request
+ *
+ * Return: 0 if successful, error code otherwise
+ */
+static int ov9282_enum_frame_interval(
+	struct v4l2_subdev *sd,
+	struct v4l2_subdev_state *sd_state,
+	struct v4l2_subdev_frame_interval_enum *fie)
+{
+	const struct ov9282_mode *mode = &supported_mode;
+
+	if (fie->index != 0)
+		return -EINVAL;
+
+	if (fie->code != mode->code)
+		return -EINVAL;
+
+	fie->width = mode->width;
+	fie->height = mode->height;
+	fie->interval.numerator =
+		(mode->width + mode->hblank) * (mode->height + mode->vblank);
+	fie->interval.denominator = mode->pclk;
+
+	return 0;
+}
+
+/**
+ * ov9282_get_mbus_config() - Report the sensor MIPI CSI-2 bus configuration
+ * @sd: pointer to ov9282 V4L2 sub-device structure
+ * @pad: pad index
+ * @config: media bus configuration to be filled
+ *
+ * Return: 0 if successful
+ */
+static int ov9282_get_mbus_config(struct v4l2_subdev *sd, unsigned int pad,
+				  struct v4l2_mbus_config *config)
+{
+	config->type = V4L2_MBUS_CSI2_DPHY;
+	config->bus.mipi_csi2.num_data_lanes = OV9282_NUM_DATA_LANES;
+
+	return 0;
+}
+
 /* V4l2 subdevice ops */
 static const struct v4l2_subdev_video_ops ov9282_video_ops = {
 	.s_stream = ov9282_set_stream,
+	.g_frame_interval = ov9282_g_frame_interval,
 };
 
 static const struct v4l2_subdev_pad_ops ov9282_pad_ops = {
 	.init_cfg = ov9282_init_pad_cfg,
 	.enum_mbus_code = ov9282_enum_mbus_code,
 	.enum_frame_size = ov9282_enum_frame_size,
+	.enum_frame_interval = ov9282_enum_frame_interval,
 	.get_fmt = ov9282_get_pad_format,
 	.set_fmt = ov9282_set_pad_format,
+	.get_mbus_config = ov9282_get_mbus_config,
 };
 
 static const struct v4l2_subdev_ops ov9282_subdev_ops = {
