@@ -9,7 +9,7 @@
                 title = "Enable OV9281 Camera";
                 compatible = "radxa,rock-4d";
                 category = "camera";
-                exclusive = "GPIO3_D6", "csi2_dcphy0", "i2c4";
+                exclusive = "GPIO3_D6", "csi2_dcphy0";
                 description = "Enable OV9281 MIPI CSI camera.";
         };
 };
