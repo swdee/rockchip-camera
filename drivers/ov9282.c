@@ -7,10 +7,14 @@
 #include <asm/unaligned.h>
 
 #include <linux/clk.h>
+#include <linux/compat.h>
 #include <linux/delay.h>
 #include <linux/i2c.h>
 #include <linux/module.h>
 #include <linux/pm_runtime.h>
+#include <linux/rk-camera-module.h>
+#include <linux/slab.h>
+#include <linux/uaccess.h>
 
 #include <media/v4l2-ctrls.h>
 #include <media/v4l2-fwnode.h>
@@ -54,6 +58,8 @@
 
 #define OV9282_REG_MIN		0x00
 #define OV9282_REG_MAX		0xfffff
+
+#define OV9282_NAME		"ov9282"
 
 /**
  * struct ov9282_reg - ov9282 sensor register
@@ -141,6 +147,13 @@ struct ov9282 {
 	};
 	u32 vblank;
 	const struct ov9282_mode *cur_mode;
+
+	/* Rockchip camera-module metadata used by RKAIQ IQ-file lookup. */
+	u32 module_index;
+	const char *module_facing;
+	const char *module_name;
+	const char *len_name;
+
 	struct mutex mutex;
 	bool streaming;
 };
@@ -1013,6 +1026,71 @@ static int ov9282_get_mbus_config(struct v4l2_subdev *sd, unsigned int pad,
 	return 0;
 }
 
+/**
+ * ov9282_get_module_inf() - Fill Rockchip camera-module metadata
+ * @ov9282: pointer to ov9282 device
+ * @inf: Rockchip module information structure
+ *
+ * RKAIQ uses this metadata together with the Rockchip-style subdev name when
+ * determining the sensor name and IQ-file to load.
+ */
+static void ov9282_get_module_inf(struct ov9282 *ov9282,
+				  struct rkmodule_inf *inf)
+{
+	memset(inf, 0, sizeof(*inf));
+	strscpy(inf->base.sensor, OV9282_NAME, sizeof(inf->base.sensor));
+	strscpy(inf->base.module, ov9282->module_name,
+		sizeof(inf->base.module));
+	strscpy(inf->base.lens, ov9282->len_name,
+		sizeof(inf->base.lens));
+}
+
+static long ov9282_ioctl(struct v4l2_subdev *sd, unsigned int cmd, void *arg)
+{
+	struct ov9282 *ov9282 = to_ov9282(sd);
+
+	switch (cmd) {
+	case RKMODULE_GET_MODULE_INFO:
+		ov9282_get_module_inf(ov9282, arg);
+		return 0;
+	default:
+		return -ENOIOCTLCMD;
+	}
+}
+
+#ifdef CONFIG_COMPAT
+static long ov9282_compat_ioctl32(struct v4l2_subdev *sd,
+				  unsigned int cmd, unsigned long arg)
+{
+	void __user *up = compat_ptr(arg);
+	struct rkmodule_inf *inf;
+	long ret;
+
+	switch (cmd) {
+	case RKMODULE_GET_MODULE_INFO:
+		inf = kzalloc(sizeof(*inf), GFP_KERNEL);
+		if (!inf)
+			return -ENOMEM;
+
+		ret = ov9282_ioctl(sd, cmd, inf);
+		if (!ret && copy_to_user(up, inf, sizeof(*inf)))
+			ret = -EFAULT;
+
+		kfree(inf);
+		return ret;
+	default:
+		return -ENOIOCTLCMD;
+	}
+}
+#endif
+
+static const struct v4l2_subdev_core_ops ov9282_core_ops = {
+	.ioctl = ov9282_ioctl,
+#ifdef CONFIG_COMPAT
+	.compat_ioctl32 = ov9282_compat_ioctl32,
+#endif
+};
+
 /* V4l2 subdevice ops */
 static const struct v4l2_subdev_video_ops ov9282_video_ops = {
 	.s_stream = ov9282_set_stream,
@@ -1031,6 +1109,7 @@ static const struct v4l2_subdev_pad_ops ov9282_pad_ops = {
 };
 
 static const struct v4l2_subdev_ops ov9282_subdev_ops = {
+	.core = &ov9282_core_ops,
 	.video = &ov9282_video_ops,
 	.pad = &ov9282_pad_ops,
 };
@@ -1187,6 +1266,30 @@ static int ov9282_probe(struct i2c_client *client)
 
 	ov9282->dev = &client->dev;
 
+	/*
+	 * Read the standard Rockchip camera-module metadata.  The overlay already
+	 * supplies these properties.  RKAIQ expects Rockchip camera sensors to
+	 * expose them through RKMODULE_GET_MODULE_INFO and to use the matching
+	 * mXX_[bf]_sensor bus-address subdev naming convention.
+	 */
+	ret = of_property_read_u32(ov9282->dev->of_node,
+				   RKMODULE_CAMERA_MODULE_INDEX,
+				   &ov9282->module_index);
+	ret |= of_property_read_string(ov9282->dev->of_node,
+				       RKMODULE_CAMERA_MODULE_FACING,
+				       &ov9282->module_facing);
+	ret |= of_property_read_string(ov9282->dev->of_node,
+				       RKMODULE_CAMERA_MODULE_NAME,
+				       &ov9282->module_name);
+	ret |= of_property_read_string(ov9282->dev->of_node,
+				       RKMODULE_CAMERA_LENS_NAME,
+				       &ov9282->len_name);
+	if (ret) {
+		dev_err(ov9282->dev,
+			"Could not get Rockchip module information\n");
+		return -EINVAL;
+	}
+
 	/* Initialize subdev */
 	v4l2_i2c_subdev_init(&ov9282->sd, client, &ov9282_subdev_ops);
 
@@ -1231,6 +1334,27 @@ static int ov9282_probe(struct i2c_client *client)
 	if (ret) {
 		dev_err(ov9282->dev, "failed to init entity pads: %d", ret);
 		goto error_handler_free;
+	}
+
+	/*
+	 * Rockchip camera stack naming convention.  With the current overlay
+	 * (module-index=0, facing="back") this becomes:
+	 *
+	 *     m00_b_ov9282 6-0010
+	 *
+	 * instead of the generic upstream name "ov9282 6-0010".  RKAIQ knows how
+	 * to parse this form and will use OV9282_NAME ("ov9282") for IQ-file
+	 * lookup rather than treating the I2C bus/address suffix as part of the
+	 * sensor name.
+	 */
+	{
+		char facing[2] = { 0 };
+
+		facing[0] = !strcmp(ov9282->module_facing, "back") ? 'b' : 'f';
+
+		snprintf(ov9282->sd.name, sizeof(ov9282->sd.name),
+			 "m%02d_%s_%s-%s", ov9282->module_index, facing,
+			 OV9282_NAME, dev_name(ov9282->sd.dev));
 	}
 
 	ret = v4l2_async_register_subdev_sensor(&ov9282->sd);
