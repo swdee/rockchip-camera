@@ -3,6 +3,7 @@
 
 #include <dt-bindings/gpio/gpio.h>
 #include <dt-bindings/pinctrl/rockchip.h>
+#include <dt-bindings/clock/rockchip,rk3576-cru.h>
 
 / {
 	metadata {
@@ -15,22 +16,43 @@
 };
 
 &{/} {
-	camera_pwdn_gpio_1: camera-pwdn-gpio-1 {
-		compatible = "regulator-fixed";
-		regulator-name = "camera_pwdn_gpio_1";
-		regulator-always-on;
-		regulator-boot-on;
-		enable-active-high;
-		gpio = <&gpio2 RK_PC5 GPIO_ACTIVE_HIGH>;
-		pinctrl-names = "default";
-		pinctrl-0 = <&cam_pwdn_gpio_1>;
+	/*
+	 * The OV9281 XVCLK is supplied externally by the carrier board
+	 * (24 MHz, 1.8 V).  This fixed-clock node is only a software
+	 * representation so the sensor driver has a valid xvclk clock
+	 * provider to acquire/enable; it does not drive a SoC clock pin.
+	 */
+	ov9281_xvclk_1: ov9281-xvclk_1 {
+		compatible = "fixed-clock";
+		#clock-cells = <0>;
+		clock-frequency = <24000000>;
 	};
 
-	clk_cam_24m_1: external-camera-clock-24m-1 {
-		compatible = "fixed-clock";
-		clock-frequency = <24000000>;
-		clock-output-names = "clk_cam_24m_1";
-		#clock-cells = <0>;
+	camera_avdd_2v8_1: camera-avdd-2v8-1 {
+		compatible = "regulator-fixed";
+		regulator-name = "camera_avdd_2v8_1";
+		regulator-min-microvolt = <2800000>;
+		regulator-max-microvolt = <2800000>;
+		regulator-always-on;
+		regulator-boot-on;
+	};
+
+	camera_dovdd_1v8_1: camera-dovdd-1v8-1 {
+		compatible = "regulator-fixed";
+		regulator-name = "camera_dovdd_1v8_1";
+		regulator-min-microvolt = <1800000>;
+		regulator-max-microvolt = <1800000>;
+		regulator-always-on;
+		regulator-boot-on;
+	};
+
+	camera_dvdd_1v2_1: camera-dvdd-1v2-1 {
+		compatible = "regulator-fixed";
+		regulator-name = "camera_dvdd_1v2_1";
+		regulator-min-microvolt = <1200000>;
+		regulator-max-microvolt = <1200000>;
+		regulator-always-on;
+		regulator-boot-on;
 	};
 };
 
@@ -46,12 +68,26 @@
 		compatible = "ovti,ov9281";
 		reg = <0x60>;
 
-		clocks = <&clk_cam_24m_1>;
+		/*
+		 * XVCLK is physically generated off-SoC on the carrier.
+		 * Use the fixed software clock above; do not mux/drive CAM_CLK0.
+		 */
+		clocks = <&ov9281_xvclk_1>;
 		clock-names = "xvclk";
 
-		avdd-supply = <&camera_pwdn_gpio_1>;
-		dovdd-supply = <&camera_pwdn_gpio_1>;
-		dvdd-supply = <&camera_pwdn_gpio_1>;
+		pinctrl-names = "default";
+		pinctrl-0 = <&cam_pwdn_gpio_1>;
+
+		/* CAM_RST_3V3 drives an inverting NMOS on the carrier.
+		 * Logical reset asserted => SoC pin HIGH => sensor XSHUTDOWN LOW.
+		 * GPIO_ACTIVE_LOW makes the OV9281 driver power-on logical 1
+		 * drive the SoC pin LOW, releasing XSHUTDOWN to 1.8 V.
+		 */
+		reset-gpios = <&gpio2 RK_PC5 GPIO_ACTIVE_LOW>;
+
+		avdd-supply = <&camera_avdd_2v8_1>;
+		dovdd-supply = <&camera_dovdd_1v8_1>;
+		dvdd-supply = <&camera_dvdd_1v2_1>;
 
 		rockchip,camera-module-index = <0>;
 		rockchip,camera-module-facing = "back";
@@ -59,9 +95,10 @@
 		rockchip,camera-module-lens-name = "default";
 
 		port {
-			ov9281_out1: endpoint {
+			ov9281_out2: endpoint {
 				remote-endpoint = <&mipidphy1_in_ucam1>;
 				data-lanes = <1 2>;
+				link-frequencies = /bits/ 64 <400000000>;
 			};
 		};
 	};
@@ -89,7 +126,7 @@
 
 			mipidphy1_in_ucam1: endpoint@2 {
 				reg = <2>;
-				remote-endpoint = <&ov9281_out1>;
+				remote-endpoint = <&ov9281_out2>;
 				data-lanes = <1 2>;
 			};
 		};

@@ -1,0 +1,234 @@
+/dts-v1/;
+/plugin/;
+
+#include <dt-bindings/gpio/gpio.h>
+#include <dt-bindings/pinctrl/rockchip.h>
+#include <dt-bindings/clock/rockchip,rk3576-cru.h>
+
+/ {
+	metadata {
+		title = "Enable OV9281 Camera on CAM2";
+		compatible = "radxa,cm4-io";
+		category = "camera";
+		exclusive = "GPIO2_D1", "csi2_dphy2", "i2c0";
+		description = "Enable an OV9281 two-lane MIPI CSI-2 camera on CAM2.";
+	};
+};
+
+&{/} {
+	/*
+	 * The OV9281 XVCLK is supplied externally by the carrier board
+	 * (24 MHz, 1.8 V).  This fixed-clock node is only a software
+	 * representation so the sensor driver has a valid xvclk clock
+	 * provider to acquire/enable; it does not drive a SoC clock pin.
+	 */
+	ov9281_xvclk_2: ov9281-xvclk_2 {
+		compatible = "fixed-clock";
+		#clock-cells = <0>;
+		clock-frequency = <24000000>;
+	};
+
+	camera_avdd_2v8_2: camera-avdd-2v8-2 {
+		compatible = "regulator-fixed";
+		regulator-name = "camera_avdd_2v8_2";
+		regulator-min-microvolt = <2800000>;
+		regulator-max-microvolt = <2800000>;
+		regulator-always-on;
+		regulator-boot-on;
+	};
+
+	camera_dovdd_1v8_2: camera-dovdd-1v8-2 {
+		compatible = "regulator-fixed";
+		regulator-name = "camera_dovdd_1v8_2";
+		regulator-min-microvolt = <1800000>;
+		regulator-max-microvolt = <1800000>;
+		regulator-always-on;
+		regulator-boot-on;
+	};
+
+	camera_dvdd_1v2_2: camera-dvdd-1v2-2 {
+		compatible = "regulator-fixed";
+		regulator-name = "camera_dvdd_1v2_2";
+		regulator-min-microvolt = <1200000>;
+		regulator-max-microvolt = <1200000>;
+		regulator-always-on;
+		regulator-boot-on;
+	};
+};
+
+&i2c0 {
+	status = "okay";
+	pinctrl-names = "default";
+	pinctrl-0 = <&i2c0m1_xfer>;
+	#address-cells = <1>;
+	#size-cells = <0>;
+
+	ov9281_1: ov9281@60 {
+		status = "okay";
+		compatible = "ovti,ov9281";
+		reg = <0x60>;
+
+		/*
+		 * XVCLK is physically generated off-SoC on the carrier.
+		 * Use the fixed software clock above; do not mux/drive CAM_CLK0.
+		 */
+		clocks = <&ov9281_xvclk_2>;
+		clock-names = "xvclk";
+
+		pinctrl-names = "default";
+		pinctrl-0 = <&cam_pwdn_gpio_2>;
+
+		/* CAM_RST_3V3 drives an inverting NMOS on the carrier.
+		 * Logical reset asserted => SoC pin HIGH => sensor XSHUTDOWN LOW.
+		 * GPIO_ACTIVE_LOW makes the OV9281 driver power-on logical 1
+		 * drive the SoC pin LOW, releasing XSHUTDOWN to 1.8 V.
+		 */
+		reset-gpios = <&gpio2 RK_PD1 GPIO_ACTIVE_LOW>;
+
+		avdd-supply = <&camera_avdd_2v8_2>;
+		dovdd-supply = <&camera_dovdd_1v8_2>;
+		dvdd-supply = <&camera_dvdd_1v2_2>;
+
+		rockchip,camera-module-index = <1>;
+		rockchip,camera-module-facing = "back";
+		rockchip,camera-module-name = "ov9281";
+		rockchip,camera-module-lens-name = "default";
+
+		port {
+			ov9281_out2: endpoint {
+				remote-endpoint = <&mipidphy2_in_ucam2>;
+				data-lanes = <1 2>;
+				link-frequencies = /bits/ 64 <400000000>;
+			};
+		};
+	};
+};
+
+&csi2_dphy0_hw {
+	status = "okay";
+};
+
+&csi2_dphy1_hw {
+	status = "okay";
+};
+
+&csi2_dphy2 {
+	status = "okay";
+
+	ports {
+		#address-cells = <1>;
+		#size-cells = <0>;
+
+		port@0 {
+			reg = <0>;
+			#address-cells = <1>;
+			#size-cells = <0>;
+
+			mipidphy2_in_ucam2: endpoint@2 {
+				reg = <2>;
+				remote-endpoint = <&ov9281_out2>;
+				data-lanes = <1 2>;
+			};
+		};
+
+		port@1 {
+			reg = <1>;
+			#address-cells = <1>;
+			#size-cells = <0>;
+
+			csidphy2_out: endpoint@0 {
+				reg = <0>;
+				remote-endpoint = <&mipi2_csi2_input>;
+			};
+		};
+	};
+};
+
+&mipi2_csi2 {
+	status = "okay";
+
+	ports {
+		#address-cells = <1>;
+		#size-cells = <0>;
+
+		port@0 {
+			reg = <0>;
+			#address-cells = <1>;
+			#size-cells = <0>;
+
+			mipi2_csi2_input: endpoint@1 {
+				reg = <1>;
+				remote-endpoint = <&csidphy2_out>;
+			};
+		};
+
+		port@1 {
+			reg = <1>;
+			#address-cells = <1>;
+			#size-cells = <0>;
+
+			mipi2_csi2_output: endpoint@0 {
+				reg = <0>;
+				remote-endpoint = <&cif_mipi_in2>;
+			};
+		};
+	};
+};
+
+&rkcif {
+	status = "okay";
+};
+
+&rkcif_mmu {
+	status = "okay";
+};
+
+&rkcif_mipi_lvds2 {
+	status = "okay";
+
+	port {
+		cif_mipi_in2: endpoint {
+			remote-endpoint = <&mipi2_csi2_output>;
+		};
+	};
+};
+
+&rkcif_mipi_lvds2_sditf {
+	status = "okay";
+
+	port {
+		mipi_lvds2_sditf: endpoint {
+			remote-endpoint = <&isp_vir2>;
+		};
+	};
+};
+
+&rkisp_mmu {
+	status = "okay";
+};
+
+&rkisp {
+	status = "okay";
+};
+
+&rkisp_vir2 {
+	status = "okay";
+
+	port {
+		#address-cells = <1>;
+		#size-cells = <0>;
+
+		isp_vir2: endpoint@0 {
+			reg = <0>;
+			remote-endpoint = <&mipi_lvds2_sditf>;
+		};
+	};
+};
+
+&pinctrl {
+	camera {
+		cam_pwdn_gpio_2: cam-pwdn-gpio-2 {
+			rockchip,pins = <2 RK_PD1 RK_FUNC_GPIO &pcfg_pull_up>;
+		};
+	};
+};
